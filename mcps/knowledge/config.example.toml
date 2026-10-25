@@ -1,0 +1,41 @@
+# Copy this file to config.local.toml and adjust the paths.
+source_root = "~/Documents/knowledge"
+data_dir = "~/.local/share/knowledge-mcp"
+
+# Patterns match source-root-relative POSIX paths.
+exclude = [
+    "**/.git/**",
+    "**/.venv/**",
+    "**/node_modules/**",
+    "**/__pycache__/**",
+]
+
+[server]
+host = "127.0.0.1"
+port = 8765
+path = "/mcp"
+poll_interval_seconds = 30
+# Defaults to <data_dir>/access-token when omitted.
+# token_file = "~/.config/knowledge-mcp/access-token"
+
+[index]
+max_files_per_sync = 10
+max_file_bytes = 20000000
+max_pdf_pages = 1000
+chunk_tokens = 220
+overlap_tokens = 30
+
+[embedding]
+provider = "sentence_transformers"
+model = "sentence-transformers/all-MiniLM-L6-v2"
+batch_size = 32
+normalize = true
+
+[parsers]
+".md" = "markdown"
+".txt" = "text"
+".pdf" = "pdf"
+# Basic code search can use the text parser before a syntax-aware parser exists.
+# ".py" = "text"
+# ".ts" = "text"
+

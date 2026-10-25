@@ -12,12 +12,17 @@ node_modules/
 .venv/
 venv/
 __pycache__/
+.ruff_cache/
 *.pyc
 
 # Build and runtime output
 *.log
 dist/
 build/
+
+# Knowledge MCP local state
+/mcps/knowledge/config.local.toml
+/mcps/knowledge/.knowledge-data/
 
 # Tool-managed system skills are installed through the Codex/Claude skill links.
 # Keep them available locally, but do not version the copied skill bundle here.
