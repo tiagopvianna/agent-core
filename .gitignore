@@ -1,11 +1,24 @@
+# macOS
 .DS_Store
+
+# Local configuration and secrets
 .env
 .env.*
+
+# Dependencies
 node_modules/
+
+# Python
 .venv/
 venv/
 __pycache__/
 *.pyc
+
+# Build and runtime output
 *.log
 dist/
 build/
+
+# Tool-managed system skills are installed through the Codex/Claude skill links.
+# Keep them available locally, but do not version the copied skill bundle here.
+/skills/.system/
