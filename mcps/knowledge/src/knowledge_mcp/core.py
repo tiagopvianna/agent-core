@@ -59,6 +59,7 @@ class KnowledgeCore:
             item.parser,
             self.config.index.chunk_tokens,
             self.config.index.overlap_tokens,
+            self.config.index.chunk_strategy,
         )
 
     def _needs_indexing(
@@ -101,6 +102,7 @@ class KnowledgeCore:
                 count_tokens=self.embedder.count_tokens,
                 max_tokens=max_tokens,
                 overlap_tokens=overlap,
+                strategy=self.config.index.chunk_strategy,
             )
             embeddings = self.embedder.embed_documents([chunk.text for chunk in chunks])
             if _current_hash(item) != item.content_hash:

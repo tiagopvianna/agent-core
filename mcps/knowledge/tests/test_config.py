@@ -30,6 +30,32 @@ exclude = ["**/vendor/**"]
             self.assertEqual(config.parsers[".py"], "text")
             self.assertEqual(config.exclude, ("**/vendor/**",))
 
+    def test_chunk_strategies_and_docx_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.toml"
+            for strategy in ("paragraph", "section", "packed"):
+                path.write_text(
+                    'source_root = "content"\ndata_dir = "state"\n'
+                    f'[index]\nchunk_strategy = "{strategy}"\n',
+                    encoding="utf-8",
+                )
+                config = load_config(path)
+                self.assertEqual(config.index.chunk_strategy, strategy)
+                self.assertEqual(config.parsers[".docx"], "docx")
+            path.write_text(
+                'source_root = "content"\ndata_dir = "state"\n'
+                '[index]\nchunk_strategy = "unknown"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "chunk_strategy"):
+                load_config(path)
+
+    def test_omitted_strategy_defaults_to_paragraph(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.toml"
+            path.write_text('source_root = "content"\ndata_dir = "state"\n')
+            self.assertEqual(load_config(path).index.chunk_strategy, "paragraph")
+
 
 if __name__ == "__main__":
     unittest.main()

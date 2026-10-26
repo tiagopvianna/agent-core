@@ -29,6 +29,7 @@ class IndexConfig:
     max_pdf_pages: int = 1_000
     chunk_tokens: int = 220
     overlap_tokens: int = 30
+    chunk_strategy: str = "paragraph"
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,7 @@ class AppConfig:
     index: IndexConfig = field(default_factory=IndexConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     parsers: dict[str, str] = field(
-        default_factory=lambda: {".md": "markdown", ".txt": "text", ".pdf": "pdf"}
+        default_factory=lambda: {".md": "markdown", ".txt": "text", ".pdf": "pdf", ".docx": "docx"}
     )
     exclude: tuple[str, ...] = (
         "**/.git/**",
@@ -118,6 +119,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         max_pdf_pages=int(index_raw.get("max_pdf_pages", 1_000)),
         chunk_tokens=int(index_raw.get("chunk_tokens", 220)),
         overlap_tokens=int(index_raw.get("overlap_tokens", 30)),
+        chunk_strategy=str(index_raw.get("chunk_strategy", "paragraph")),
     )
     embedding = EmbeddingConfig(
         provider=str(embedding_raw.get("provider", "sentence_transformers")),
@@ -128,7 +130,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     parsers = {
         (extension if extension.startswith(".") else f".{extension}").lower(): str(parser)
         for extension, parser in (
-            parsers_raw or {".md": "markdown", ".txt": "text", ".pdf": "pdf"}
+            parsers_raw or {".md": "markdown", ".txt": "text", ".pdf": "pdf", ".docx": "docx"}
         ).items()
     }
     exclude_raw = raw.get("exclude", list(AppConfig.__dataclass_fields__["exclude"].default))
@@ -164,11 +166,13 @@ def validate_config(config: AppConfig) -> None:
         raise ValueError("PDF and chunk limits must be positive")
     if not 0 <= config.index.overlap_tokens < config.index.chunk_tokens:
         raise ValueError("overlap_tokens must be non-negative and smaller than chunk_tokens")
+    if config.index.chunk_strategy not in {"paragraph", "section", "packed"}:
+        raise ValueError("index.chunk_strategy must be paragraph, section, or packed")
     if config.embedding.batch_size <= 0:
         raise ValueError("embedding.batch_size must be positive")
     if not config.parsers:
         raise ValueError("At least one parser mapping is required")
-    allowed_parsers = {"text", "markdown", "pdf"}
+    allowed_parsers = {"text", "markdown", "pdf", "docx"}
     unknown = sorted(set(config.parsers.values()) - allowed_parsers)
     if unknown:
         raise ValueError(f"Unknown parser names: {', '.join(unknown)}")

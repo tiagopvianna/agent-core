@@ -68,18 +68,52 @@ knowledge --config /absolute/path/to/config.local.toml search "your query"
 
 ## Files and configuration
 
-Subfolders under `source_root` are organizational metadata, so structures such as `apis/`, `work/`, `commands/`, and `projects/` need no schema changes. The default parsers support `.md`, `.txt`, and `.pdf`. To index a code or configuration format as plain UTF-8 text, map it explicitly:
+Subfolders under `source_root` are organizational metadata, so structures such as `apis/`, `work/`, `commands/`, and `projects/` need no schema changes. The default parsers support `.md`, `.txt`, `.pdf`, and `.docx`. To index a code or configuration format as plain UTF-8 text, map it explicitly:
 
 ```toml
 [parsers]
 ".md" = "markdown"
 ".txt" = "text"
 ".pdf" = "pdf"
+".docx" = "docx"
 ".py" = "text"
 ".sh" = "text"
 ```
 
 Hidden folders, symlinks, dependencies, virtual environments, and configured exclusions are skipped. PDFs are indexed completely up to `max_pdf_pages`; files above the limit fail visibly instead of being marked partially complete. Image-only PDFs require OCR before ingestion.
+
+DOCX ingestion reads body paragraphs, headings, lists, and tables in document order, including nested tables. It excludes headers, footers, comments, and images. DOCX results identify the file and chunk without invented page or line numbers. If your configuration has an explicit `[parsers]` table, add `".docx" = "docx"` to enable it.
+
+### Chunking strategies
+
+Choose one global strategy for all formats:
+
+```toml
+[index]
+chunk_strategy = "paragraph" # paragraph | section | packed
+chunk_tokens = 256
+# Applies only to forced budget cuts, including special tokens in the count.
+overlap_tokens = 40
+```
+
+- `paragraph` (default): keep each paragraph or list as its own chunk when it fits. A heading accompanies only the first following unit; it is never repeated in later chunks.
+- `section`: keep a section from its heading through the content before the next heading if it fits; otherwise split into paragraph/list units. Without recognizable headings, use paragraph units.
+- `packed`: combine consecutive units until the budget is reached. This offers a comparison with the earlier packing behavior, but is not an exact reproduction of the old algorithm.
+
+For example, with enough budget for a heading and two short paragraphs:
+
+```text
+Source:       # Deploy → paragraph A → paragraph B
+paragraph:    [# Deploy + A] [B]
+section:      [# Deploy + A + B]
+packed:       [# Deploy + A + B]  (may also combine later sections)
+```
+
+Oversized paragraphs split at sentence punctuation (`.`, `!`, `?`) or line breaks; oversized lists first split at item boundaries. Consecutive pieces within the same original unit can share a chunk. Fenced code splits by lines. If a sentence or line still does not fit, the chunker cuts at whitespace, or within a word as a last resort; only these forced cuts use overlap. Every final chunk is checked against `min(chunk_tokens, model.max_seq_length)`, including special tokens.
+
+Sentence splitting uses simple rules, so abbreviations can split imperfectly. Plain-text headings use Markdown `#` syntax; DOCX headings use heading styles. PDF structure is inferred only from extracted text, without layout analysis or OCR, and chunks never span pages. A PDF without blank paragraph separators may retain a larger text unit until its token budget requires subdivision. These rules preserve textual boundaries rather than guaranteeing semantic completeness.
+
+Configuration is loaded at startup. Restart after changes, then run `knowledge index` to process the pending batches. Changing a strategy, token setting, or chunker version automatically schedules reindexing; it does not require a new `data_dir`. During reindexing, files not yet processed retain their previous indexed chunks. Keep the embedding model fixed when comparing strategies, use `knowledge inspect PATH --max-chars 100000 --json` to inspect chunk text and locations, and compare the same representative queries with expected passages. More coherent chunks do not automatically guarantee better retrieval.
 
 `data_dir` contains ChromaDB, `manifest.json`, and a process lock. Keep it outside the source folder and out of Git. The manifest records file hashes and indexing state. Unchanged files are not re-embedded, removed files are removed from search, and interrupted replacements are hidden and retried on a later synchronization.
 

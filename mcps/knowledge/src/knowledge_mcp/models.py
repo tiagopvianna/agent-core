@@ -11,6 +11,8 @@ class Segment:
     page: int | None = None
     start_line: int | None = None
     end_line: int | None = None
+    kind: str = "text"
+    heading_level: int | None = None
 
 
 @dataclass(frozen=True)

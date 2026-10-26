@@ -6,11 +6,16 @@ import io
 import os
 import re
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from knowledge_mcp.models import Chunk, DiscoveredFile, DiscoveryResult, Segment
 
-PARSER_VERSIONS = {"text": 1, "markdown": 1, "pdf": 1}
+PARSER_VERSIONS = {"text": 1, "markdown": 2, "pdf": 1, "docx": 1}
+CHUNKER_VERSION = 2
+HEADING = re.compile(r"^ {0,3}(#{1,6})[ \t]+")
+LIST_ITEM = re.compile(r"^ {0,3}(?:[-*+]|\d+[.)])[ \t]+", re.MULTILINE)
 Parser = Callable[[bytes, int], list[Segment]]
 
 
@@ -161,25 +166,7 @@ def parse_markdown(content: bytes, _max_pdf_pages: int) -> list[Segment]:
     if not text:
         return []
 
-    lines = text.splitlines(keepends=True)
-    segments: list[Segment] = []
-    start = 0
-    buffer: list[str] = []
-    for line_number, line in enumerate(lines, start=1):
-        is_heading = bool(re.match(r"^#{1,6}\s+", line))
-        is_blank = not line.strip()
-        if is_heading and buffer:
-            segments.append(Segment("".join(buffer), start_line=start, end_line=line_number - 1))
-            buffer = []
-        if not buffer:
-            start = line_number
-        buffer.append(line)
-        if is_blank and "".join(buffer).strip():
-            segments.append(Segment("".join(buffer), start_line=start, end_line=line_number))
-            buffer = []
-    if buffer and "".join(buffer).strip():
-        segments.append(Segment("".join(buffer), start_line=start, end_line=len(lines)))
-    return segments
+    return _text_blocks(Segment(text=text, start_line=1))
 
 
 def parse_pdf(content: bytes, max_pdf_pages: int) -> list[Segment]:
@@ -207,10 +194,59 @@ def parse_pdf(content: bytes, max_pdf_pages: int) -> list[Segment]:
     return segments
 
 
+def parse_docx(content: bytes, _max_pdf_pages: int) -> list[Segment]:
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    def blocks(container: Any) -> Iterable[Segment]:
+        for block in container.iter_inner_content():
+            if isinstance(block, Paragraph):
+                text = block.text + "\n\n"
+                style = block.style.name if block.style is not None else ""
+                heading = re.fullmatch(r"Heading ([1-9])", style)
+                properties = block._p.pPr
+                is_list = (properties is not None and properties.numPr is not None) or (
+                    style.startswith("List")
+                )
+                kind = "heading" if heading else "list" if is_list else "paragraph"
+                yield Segment(
+                    text=text,
+                    kind=kind,
+                    heading_level=int(heading[1]) if heading else None,
+                )
+            elif isinstance(block, Table):
+                # Horizontal and vertical merges can expose the same cell repeatedly.
+                seen: set[Any] = set()
+                for row in block.rows:
+                    cells: list[str] = []
+                    for cell in row.cells:
+                        if cell._tc not in seen:
+                            seen.add(cell._tc)
+                            cells.append("".join(item.text for item in blocks(cell)).rstrip())
+                    yield Segment(text="\t".join(cells) + "\n", kind="table_row")
+
+    try:
+        segments = list(blocks(Document(io.BytesIO(content))))
+    except Exception as exc:
+        raise ValueError("DOCX could not be read") from exc
+    # A DOCX list is a run of list paragraphs, not one chunk per item.
+    grouped: list[Segment] = []
+    for segment in segments:
+        if not segment.text.strip():
+            continue
+        if segment.kind == "list" and grouped and grouped[-1].kind == "list":
+            grouped[-1] = replace(grouped[-1], text=grouped[-1].text + segment.text)
+        else:
+            grouped.append(segment)
+    return grouped
+
+
 PARSERS: dict[str, Parser] = {
     "text": parse_text,
     "markdown": parse_markdown,
     "pdf": parse_pdf,
+    "docx": parse_docx,
 }
 
 
@@ -226,12 +262,115 @@ def processing_fingerprint(
     parser_name: str,
     chunk_tokens: int,
     overlap_tokens: int,
+    strategy: str = "paragraph",
 ) -> str:
     raw = (
         f"parser={parser_name}:{PARSER_VERSIONS.get(parser_name, 0)};"
-        f"chunk_tokens={chunk_tokens};overlap_tokens={overlap_tokens}"
+        f"chunk_tokens={chunk_tokens};overlap_tokens={overlap_tokens};"
+        f"strategy={strategy};chunker={CHUNKER_VERSION}"
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _slice(segment: Segment, start: int, end: int, *, kind: str | None = None) -> Segment:
+    text = segment.text[start:end]
+    line = (
+        segment.start_line + segment.text[:start].count("\n")
+        if segment.start_line is not None
+        else None
+    )
+    return replace(
+        segment,
+        text=text,
+        start_line=line,
+        end_line=line + text.rstrip("\r\n").count("\n") if line is not None else None,
+        kind=kind or segment.kind,
+    )
+
+
+def _join(segments: list[Segment]) -> Segment:
+    lines = [item.start_line for item in segments if item.start_line is not None]
+    ends = [item.end_line for item in segments if item.end_line is not None]
+    return replace(
+        segments[0],
+        text="".join(item.text for item in segments),
+        start_line=min(lines) if lines else None,
+        end_line=max(ends) if ends else None,
+    )
+
+
+def _text_blocks(segment: Segment) -> list[Segment]:
+    """Recognize plain-text structure while retaining original character spans."""
+    result: list[Segment] = []
+    start = offset = 0
+    kind = "paragraph"
+    level = None
+    fence: tuple[str, int] | None = None
+
+    def flush(end: int) -> None:
+        nonlocal start
+        if end > start:
+            part = _slice(segment, start, end, kind=kind)
+            if part.text.strip():
+                result.append(replace(part, heading_level=level))
+            elif result:
+                result[-1] = replace(result[-1], text=result[-1].text + part.text)
+            start = end
+
+    for line in segment.text.splitlines(keepends=True):
+        end = offset + len(line)
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence:
+            if (
+                marker
+                and marker[1][0] == fence[0]
+                and len(marker[1]) >= fence[1]
+                and not line[marker.end() :].strip()
+            ):
+                flush(end)
+                fence = None
+                kind, level = "paragraph", None
+        elif marker:
+            flush(offset)
+            kind, level = "code", None
+            fence = (marker[1][0], len(marker[1]))
+        elif not line.strip():
+            flush(end)
+            kind, level = "paragraph", None
+        else:
+            heading = HEADING.match(line)
+            if heading:
+                flush(offset)
+                kind, level = "heading", len(heading[1])
+            elif kind == "heading" or (LIST_ITEM.match(line) and kind != "list"):
+                flush(offset)
+                kind, level = "list" if LIST_ITEM.match(line) else "paragraph", None
+        offset = end
+    flush(offset)
+    return result
+
+
+def _pack(
+    segments: list[Segment],
+    count_tokens: Callable[[str], int],
+    budget: int,
+) -> list[Segment]:
+    result: list[Segment] = []
+    current: list[Segment] = []
+    for segment in segments:
+        candidate = "".join(item.text for item in current) + segment.text
+        if current and (segment.page != current[0].page or count_tokens(candidate) > budget):
+            result.append(_join(current))
+            current = []
+        current.append(segment)
+    if current:
+        result.append(_join(current))
+    return result
+
+
+def _partition(segment: Segment, boundaries: list[int]) -> list[Segment]:
+    points = sorted({0, *boundaries, len(segment.text)})
+    return [_slice(segment, a, b) for a, b in zip(points, points[1:], strict=False) if b > a]
 
 
 def _split_to_budget(
@@ -240,58 +379,112 @@ def _split_to_budget(
     budget: int,
     overlap_tokens: int,
 ) -> list[Segment]:
+    """Last resort: bounded character spans, preferring whitespace cuts."""
     text = segment.text
-    if not text or count_tokens(text) <= budget:
-        return [segment] if text else []
-
     pieces: list[Segment] = []
     start = 0
     while start < len(text):
-        low = start + 1
-        high = len(text)
-        best = low
+        if count_tokens(text[start:]) <= budget:
+            pieces.append(_slice(segment, start, len(text)))
+            break
+        low, high, end = start + 1, len(text), start
         while low <= high:
             middle = (low + high) // 2
             if count_tokens(text[start:middle]) <= budget:
-                best = middle
+                end = middle
                 low = middle + 1
             else:
                 high = middle - 1
-        end = best
-        if end < len(text):
-            boundary = max(text.rfind("\n", start, end), text.rfind(" ", start, end))
-            if boundary > start + max(16, (end - start) // 2):
-                end = boundary + 1
-        piece = text[start:end]
-        start_line = (
-            segment.start_line + text[:start].count("\n")
-            if segment.start_line is not None
-            else None
-        )
-        end_line = start_line + piece.count("\n") if start_line is not None else segment.end_line
-        pieces.append(
-            Segment(
-                text=piece,
-                page=segment.page,
-                start_line=start_line,
-                end_line=end_line,
-            )
-        )
-        if end >= len(text):
-            break
-        if overlap_tokens <= 0:
-            start = end
-            continue
-        overlap_start = end
-        while overlap_start > start:
-            candidate = max(start, overlap_start - 64)
-            if count_tokens(text[candidate:end]) > overlap_tokens:
+        if end == start:
+            raise ValueError("Token budget cannot fit a text fragment including special tokens")
+        # Verify candidate boundaries: token counts need not grow monotonically.
+        for match in reversed(list(re.finditer(r"\s+", text[start:end]))):
+            boundary = start + match.end()
+            if boundary > start and count_tokens(text[start:boundary]) <= budget:
+                end = boundary
                 break
-            overlap_start = candidate
-        if overlap_start == end:
-            overlap_start = max(start, end - 1)
-        start = overlap_start
+        if count_tokens(text[start:end]) > budget:
+            raise ValueError("Unable to split text within the token budget")
+        pieces.append(_slice(segment, start, end))
+        next_start = end
+        if overlap_tokens > 0 and end < len(text):
+            # Only reuse a suffix if the next chunk can also consume new text.
+            for candidate in range(end - 1, start, -1):
+                if count_tokens(text[candidate:end]) > overlap_tokens:
+                    break
+                if count_tokens(text[candidate : end + 1]) <= budget:
+                    next_start = candidate
+        start = next_start
     return pieces
+
+
+def _split_block(
+    segment: Segment,
+    count_tokens: Callable[[str], int],
+    budget: int,
+    overlap: int,
+) -> list[Segment]:
+    if count_tokens(segment.text) <= budget:
+        return [segment]
+    if segment.kind == "list":
+        boundaries = [m.start() for m in LIST_ITEM.finditer(segment.text)]
+        # DOCX list paragraphs are separated by blank lines, without rendered markers.
+        boundaries += [m.end() for m in re.finditer(r"\n[ \t]*\n", segment.text)]
+        items = _partition(segment, boundaries)
+        if len(items) > 1:
+            return _pack(
+                [
+                    piece
+                    for item in items
+                    for piece in _split_block(
+                        replace(item, kind="paragraph"), count_tokens, budget, overlap
+                    )
+                ],
+                count_tokens,
+                budget,
+            )
+    pattern = r"\n" if segment.kind in {"code", "table_row"} else r"(?<=[.!?])[ \t]+|\r?\n"
+    parts = _partition(segment, [m.end() for m in re.finditer(pattern, segment.text)])
+    pieces: list[Segment] = []
+    for part in parts:
+        if count_tokens(part.text) <= budget:
+            pieces.append(part)
+        else:
+            pieces.extend(_split_to_budget(part, count_tokens, budget, overlap))
+    return _pack(pieces, count_tokens, budget)
+
+
+def _paragraph_units(blocks: list[Segment]) -> list[list[Segment]]:
+    units: list[list[Segment]] = []
+    pending: list[Segment] = []
+    for block in blocks:
+        if pending and pending[0].page != block.page:
+            units.append(pending)
+            pending = []
+        if block.kind == "heading":
+            pending.append(block)
+        else:
+            units.append([*pending, block])
+            pending = []
+    if pending:
+        units.append(pending)
+    return units
+
+
+def _section_units(units: list[list[Segment]]) -> list[list[list[Segment]]]:
+    sections: list[list[list[Segment]]] = []
+    current: list[list[Segment]] = []
+    for unit in units:
+        if current and (unit[0].kind == "heading" or unit[0].page != current[0][0].page):
+            sections.append(current)
+            current = []
+        if unit[0].kind == "heading" or current:
+            current.append(unit)
+        else:
+            sections.append([unit])
+    if current:
+        sections.append(current)
+    return sections
 
 
 def chunk_segments(
@@ -303,35 +496,59 @@ def chunk_segments(
     count_tokens: Callable[[str], int],
     max_tokens: int,
     overlap_tokens: int,
+    strategy: str = "paragraph",
 ) -> list[Chunk]:
-    expanded: list[Segment] = []
-    for segment in segments:
-        expanded.extend(_split_to_budget(segment, count_tokens, max_tokens, overlap_tokens))
-
-    groups: list[list[Segment]] = []
-    current: list[Segment] = []
-    for segment in expanded:
-        candidate_text = "".join(item.text for item in [*current, segment])
-        if current and count_tokens(candidate_text) > max_tokens:
-            groups.append(current)
-            current = []
-        current.append(segment)
-    if current:
-        groups.append(current)
+    if strategy not in {"paragraph", "section", "packed"}:
+        raise ValueError("Unknown chunk strategy")
+    if max_tokens <= 0 or overlap_tokens < 0:
+        raise ValueError("Token budget must be positive and overlap non-negative")
+    blocks = [
+        block
+        for segment in segments
+        for block in (_text_blocks(segment) if segment.kind == "text" else [segment])
+        if block.text.strip()
+    ]
+    units = _paragraph_units(blocks)
+    sections = _section_units(units) if strategy == "section" else [[unit] for unit in units]
+    fitted: list[Segment] = []
+    for section in sections:
+        combined = _join([block for unit in section for block in unit])
+        if count_tokens(combined.text) <= max_tokens:
+            fitted.append(combined)
+            continue
+        for unit in section:
+            combined = _join(unit)
+            if count_tokens(combined.text) <= max_tokens:
+                fitted.append(combined)
+            else:
+                fitted.extend(
+                    _pack(
+                        [
+                            piece
+                            for block in unit
+                            for piece in _split_block(
+                                block, count_tokens, max_tokens, overlap_tokens
+                            )
+                        ],
+                        count_tokens,
+                        max_tokens,
+                    )
+                )
+    if strategy == "packed":
+        fitted = _pack(fitted, count_tokens, max_tokens)
 
     folder = str(PurePosixPath(relative_path).parent)
     if folder == ".":
         folder = ""
     chunks: list[Chunk] = []
-    for ordinal, group in enumerate(groups):
-        text = "".join(item.text for item in group)
+    for ordinal, segment in enumerate(fitted):
+        text = segment.text
         if not text.strip():
             continue
+        if count_tokens(text) > max_tokens:
+            raise ValueError("Chunk exceeds the effective model token limit")
         raw_id = f"{relative_path}:{content_hash}:{process_fingerprint}:{ordinal}"
         chunk_id = hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
-        pages = {item.page for item in group if item.page is not None}
-        start_lines = [item.start_line for item in group if item.start_line is not None]
-        end_lines = [item.end_line for item in group if item.end_line is not None]
         metadata: dict[str, str | int | float | bool] = {
             "path": relative_path,
             "file_type": file_type,
@@ -340,11 +557,11 @@ def chunk_segments(
             "processing_fingerprint": process_fingerprint,
             "chunk_index": ordinal,
         }
-        if len(pages) == 1:
-            metadata["page"] = next(iter(pages))
-        if start_lines:
-            metadata["start_line"] = min(start_lines)
-        if end_lines:
-            metadata["end_line"] = max(end_lines)
+        if segment.page is not None:
+            metadata["page"] = segment.page
+        if segment.start_line is not None:
+            metadata["start_line"] = segment.start_line
+        if segment.end_line is not None:
+            metadata["end_line"] = segment.end_line
         chunks.append(Chunk(id=chunk_id, text=text, metadata=metadata))
     return chunks

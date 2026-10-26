@@ -6,7 +6,8 @@
 configured root
     -> ingest.discover_files()
     -> parser selected by extension
-    -> token-aware chunk_segments()
+    -> structural units (headings, paragraphs, lists, fenced code, table rows)
+    -> strategy-aware, token-bounded chunk_segments()
     -> Embedder.embed_documents()
     -> ChromaStore + atomic JSON manifest
 
@@ -29,15 +30,25 @@ For a UTF-8 format that needs no structure-aware parsing, only add an extension 
 ".rst" = "text"
 ```
 
-For a format such as DOCX:
+DOCX is implemented with `python-docx`. For another structured format:
 
 1. Add a parser function in `ingest.py` with the same signature as `parse_pdf`.
-2. Return `Segment` values with source locations when the format provides them.
+2. Return `Segment` values with source locations when the format provides them. Use `kind` (`text`, `heading`, `paragraph`, `list`, `code`, or `table_row`) and optional `heading_level` for explicit structure. Raw `text` segments receive shared plain-text boundary detection. DOCX intentionally has no synthetic page or line locations.
 3. Register the function in `PARSERS` and give it a version in `PARSER_VERSIONS`.
 4. Permit its name in `config.validate_config`.
 5. Add fixtures for empty, malformed, oversized, and representative files.
 
 Increasing a parser version changes that file type's processing fingerprint, so existing matching files are reindexed. `core.py`, MCP tools, and storage should not change.
+
+## Chunking contract
+
+`index.chunk_strategy` selects `paragraph` (default), `section`, or `packed` globally. `core.py` passes the strategy and effective model token ceiling into ingestion; it does not own boundary heuristics. Keep splitting helpers in `ingest.py` while this remains one pipeline.
+
+The chunker preserves independent paragraph/list units, optionally keeps whole sections, or packs neighboring units. It subdivides oversized units at progressively smaller boundaries and applies overlap only to forced budget cuts. It preserves content order and actual source locations, never combines PDF pages, and verifies every emitted chunk with the supplied token counter, including special tokens. It raises a clear error instead of emitting a fragment that cannot fit. Existing core recovery handles that file failure before vector replacement.
+
+`processing_fingerprint()` includes parser version, chunker version, strategy, token budget, and overlap. Increment `CHUNKER_VERSION` whenever boundary semantics change; this triggers batched reindexing in the existing data directory. Strategy changes do not change the embedding identity. Config is read at server startup, not reloaded live.
+
+Use deterministic counters in unit tests for budget and preservation assertions. Use the actual cached tokenizer for an optional smoke test without downloading a model. Retrieval quality requires representative searches, rather than assuming a structural strategy is always better.
 
 ## Adding or changing an embedder
 

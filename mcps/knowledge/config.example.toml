@@ -19,10 +19,13 @@ poll_interval_seconds = 30
 # token_file = "~/.config/knowledge-mcp/access-token"
 
 [index]
+# paragraph: preserve units; section: preserve sections; packed: fill the budget.
+chunk_strategy = "paragraph"
 max_files_per_sync = 10
 max_file_bytes = 20000000
 max_pdf_pages = 1000
-chunk_tokens = 250
+chunk_tokens = 256
+# Used only when a unit requires a forced budget cut.
 overlap_tokens = 40
 
 [embedding]
@@ -35,6 +38,7 @@ normalize = true
 ".md" = "markdown"
 ".txt" = "text"
 ".pdf" = "pdf"
+".docx" = "docx"
 # Basic code search can use the text parser before a syntax-aware parser exists.
 # ".py" = "text"
 # ".ts" = "text"

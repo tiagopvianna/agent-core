@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -215,6 +216,46 @@ class CoreTests(unittest.TestCase):
         document.write_text("alpha", encoding="utf-8")
         fixed = self.core.sync()
         self.assertEqual(fixed["indexed"], 1)
+
+    def test_strategy_change_reindexes_unchanged_source(self) -> None:
+        document = self.source / "note.txt"
+        document.write_text("alpha\n\nbeta", encoding="utf-8")
+        self.assertEqual(self.core.sync()["indexed"], 1)
+        self.assertEqual(len(self.store.documents["note.txt"][0]), 2)
+        config = replace(self.config, index=replace(self.config.index, chunk_strategy="packed"))
+        core = KnowledgeCore(config, self.embedder, self.store)
+        self.assertEqual(core.sync()["indexed"], 1)
+        self.assertEqual(len(self.store.documents["note.txt"][0]), 1)
+        self.assertEqual(core.sync()["indexed"], 0)
+
+    def test_model_capacity_caps_configured_chunk_budget(self) -> None:
+        document = self.source / "note.txt"
+        document.write_text("alpha " * 100, encoding="utf-8")
+        config = replace(self.config, index=replace(self.config.index, chunk_tokens=256))
+        core = KnowledgeCore(config, self.embedder, self.store)
+        self.assertEqual(core.sync()["indexed"], 1)
+        self.assertTrue(
+            all(
+                self.embedder.count_tokens(c.text) <= self.embedder.max_tokens
+                for c in self.store.documents["note.txt"][0]
+            )
+        )
+
+    def test_docx_uses_existing_indexing_pipeline_and_file_size_limit(self) -> None:
+        from docx import Document
+
+        document = Document()
+        document.add_heading("Alpha", level=1)
+        document.add_paragraph("Beta is searchable.")
+        document.save(self.source / "note.docx")
+        self.assertEqual(self.core.sync()["indexed"], 1)
+        self.assertEqual(self.core.search("beta")[0]["path"], "note.docx")
+        config = replace(self.config, index=replace(self.config.index, max_file_bytes=1))
+        (self.source / "other.docx").write_bytes((self.source / "note.docx").read_bytes())
+        core = KnowledgeCore(config, self.embedder, self.store)
+        report = core.sync()
+        self.assertEqual(report["failed"], 1)
+        self.assertIn("max_file_bytes", report["errors"]["other.docx"])
 
 
 if __name__ == "__main__":
