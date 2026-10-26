@@ -27,3 +27,6 @@ build/
 # Tool-managed system skills are installed through the Codex/Claude skill links.
 # Keep them available locally, but do not version the copied skill bundle here.
 /skills/.system/
+
+# Generated technical document examples
+/skills/technical-doc/examples/
