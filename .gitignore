@@ -29,4 +29,5 @@ build/
 /skills/.system/
 
 # Generated technical document examples
-/skills/technical-doc/examples/
+/skills/technical-doc/examples/*
+!/skills/technical-doc/examples/README.md
