@@ -23,7 +23,6 @@ data_dir = "~/.local/share/knowledge-mcp"
 
 - `source_root` is the folder containing the files to search. It is scanned recursively, so files may be organized in any number of subfolders.
 - `data_dir` contains the persistent ChromaDB index, manifest, and process lock. Keep it outside `source_root` and outside Git.
-- `server.token_file` is optional. When omitted, the token is stored at `<data_dir>/access-token`; with the example paths, that is `~/.local/share/knowledge-mcp/access-token`.
 
 Create the source folder if necessary, then start the service:
 
@@ -32,7 +31,7 @@ mkdir -p ~/Documents/knowledge
 uv run knowledge --config config.local.toml serve
 ```
 
-Keep this terminal running. On startup the server creates the data directory and bearer token, loads the embedding model, performs an initial synchronization, and then checks for changes every `server.poll_interval_seconds` (30 seconds in the example). The first start downloads the configured Sentence Transformers model if it is not cached; later embeddings run locally.
+Keep this terminal running. On startup the server creates the data directory, loads the embedding model, performs an initial synchronization, and then checks for changes every `server.poll_interval_seconds` (30 seconds in the example). The first start downloads the configured Sentence Transformers model if it is not cached; later embeddings run locally.
 
 Stop the server with `Ctrl-C`. Vectors and indexing state remain on disk in `data_dir`, so restarting the same configuration reuses the existing index and synchronizes changes made while the server was stopped.
 
@@ -121,27 +120,14 @@ The server polls at `server.poll_interval_seconds`. A failed file is reported an
 
 ## Connect agents
 
-The default endpoint is `http://127.0.0.1:8765/mcp`. Start the server first, then open another terminal and load its token into the environment before launching Codex. With the example configuration:
+The default endpoint is `http://127.0.0.1:8765/mcp`. Start the server, then register it without authentication:
 
 ```sh
-export KNOWLEDGE_MCP_TOKEN="$(tr -d '\n' < ~/.local/share/knowledge-mcp/access-token)"
-codex mcp add knowledge \
-  --url http://127.0.0.1:8765/mcp \
-  --bearer-token-env-var KNOWLEDGE_MCP_TOKEN
-codex
+codex mcp add knowledge --url http://127.0.0.1:8765/mcp
+claude mcp add knowledge --transport http http://127.0.0.1:8765/mcp
 ```
 
-Registration is normally needed only once, but the environment variable must be present whenever Codex starts. A representative prompt is: `Use the knowledge MCP to search my indexed files and answer this question with source paths: <question>`.
-
-Claude Code accepts the same endpoint with an authorization header:
-
-```sh
-claude mcp add --transport http --scope user knowledge \
-  http://127.0.0.1:8765/mcp \
-  --header "Authorization: Bearer $KNOWLEDGE_MCP_TOKEN"
-```
-
-Keep the environment variable available when starting the client. Other MCP clients need Streamable HTTP and `Authorization: Bearer <token>`.
+The server permits loopback hosts only and retains host/origin checks. Local clients do not need a token or environment variable. Remove old authentication headers, `bearer_token_env_var`, or `http_headers_helper` from existing client registrations, then restart the client and server. Legacy token files are unused and may be removed; the server no longer creates or reads them.
 
 The MCP exposes four tools:
 
@@ -155,10 +141,8 @@ This server exposes MCP tools, not MCP resources, so an empty resource list is e
 ## Troubleshooting
 
 - `Knowledge server is not running` or `httpx.ConnectError`: confirm the `serve` terminal is still running and that the configured host, port, and path match the client registration.
-- HTTP `401` or `403`: export the token before launching the agent and confirm that the file matches the configured `server.token_file` or the default `<data_dir>/access-token`.
 - `Another knowledge server already owns data directory`: an existing server is using that `data_dir`; use it instead of starting a second writer, or stop it cleanly first.
 - A new file is not searchable yet: wait for the polling interval or run `uv run knowledge --config config.local.toml index` immediately.
-- The token path is uncertain: inspect `config.local.toml`; when `server.token_file` is omitted, it is always `<data_dir>/access-token`.
 
 ## Rebuilds and recovery
 

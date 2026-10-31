@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import logging
-import secrets
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 import anyio
-from mcp.server.auth.provider import AccessToken
-from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -20,40 +16,6 @@ from knowledge_mcp.storage import ChromaStore, DataDirectoryLock
 logger = logging.getLogger(__name__)
 
 
-class StaticTokenVerifier:
-    def __init__(self, expected_token: str, resource: str):
-        self.expected_token = expected_token
-        self.resource = resource
-
-    async def verify_token(self, token: str) -> AccessToken | None:
-        if not secrets.compare_digest(token, self.expected_token):
-            return None
-        return AccessToken(
-            token=token,
-            client_id="knowledge-local-client",
-            scopes=["knowledge"],
-            resource=self.resource,
-            subject="local-user",
-        )
-
-
-def ensure_access_token(path: Path) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        token = path.read_text(encoding="utf-8").strip()
-        if not token:
-            raise RuntimeError(f"Access token file is empty: {path}")
-        return token
-    token = secrets.token_urlsafe(32)
-    descriptor = path.open("x", encoding="utf-8")
-    try:
-        descriptor.write(f"{token}\n")
-    finally:
-        descriptor.close()
-    path.chmod(0o600)
-    return token
-
-
 def build_core(config: AppConfig) -> KnowledgeCore:
     return KnowledgeCore(
         config=config,
@@ -62,7 +24,7 @@ def build_core(config: AppConfig) -> KnowledgeCore:
     )
 
 
-def create_mcp_server(config: AppConfig, core: KnowledgeCore, token: str) -> FastMCP:
+def create_mcp_server(config: AppConfig, core: KnowledgeCore) -> FastMCP:
     @asynccontextmanager
     async def lifespan(_server: FastMCP):
         async def poll() -> None:
@@ -86,12 +48,6 @@ def create_mcp_server(config: AppConfig, core: KnowledgeCore, token: str) -> Fas
         }
     )
     origin_values = [f"http://{value}" for value in host_values]
-    auth = AuthSettings(
-        issuer_url=f"http://{config.server.host}:{config.server.port}",
-        resource_server_url=config.server.url,
-        required_scopes=["knowledge"],
-        validate_token_resource=True,
-    )
     mcp = FastMCP(
         "knowledge",
         instructions="Index and semantically search local files with source locations.",
@@ -99,8 +55,6 @@ def create_mcp_server(config: AppConfig, core: KnowledgeCore, token: str) -> Fas
         port=config.server.port,
         streamable_http_path=config.server.path,
         lifespan=lifespan,
-        token_verifier=StaticTokenVerifier(token, config.server.url),
-        auth=auth,
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=host_values,
@@ -144,11 +98,8 @@ def create_mcp_server(config: AppConfig, core: KnowledgeCore, token: str) -> Fas
 
 
 def run_server(config: AppConfig) -> None:
-    if config.server.token_file is None:
-        raise RuntimeError("server.token_file was not resolved")
     owner = DataDirectoryLock(config.data_dir)
     with owner:
-        token = ensure_access_token(config.server.token_file)
-        server = create_mcp_server(config, build_core(config), token)
+        server = create_mcp_server(config, build_core(config))
         logger.info("Serving knowledge MCP at %s", config.server.url)
         server.run(transport="streamable-http")

@@ -17,7 +17,7 @@ query
     -> active matches with source locations
 ```
 
-`models.py` holds the few values shared across boundaries. `config.py` parses and validates TOML. `ingest.py` owns filesystem discovery, parsers, processing fingerprints, and chunking. `embeddings.py` owns the small embedding contract and Sentence Transformers adapter. `storage.py` owns all Chroma and manifest details. `core.py` orchestrates use cases without importing vendor libraries. `server.py` owns process lifetime, authentication, polling, and MCP tools. `cli.py` is an MCP client except for its `serve` command.
+`models.py` holds the few values shared across boundaries. `config.py` parses and validates TOML. `ingest.py` owns filesystem discovery, parsers, processing fingerprints, and chunking. `embeddings.py` owns the small embedding contract and Sentence Transformers adapter. `storage.py` owns all Chroma and manifest details. `core.py` orchestrates use cases without importing vendor libraries. `server.py` owns process lifetime, loopback transport protection, polling, and MCP tools. `cli.py` is an MCP client except for its `serve` command.
 
 Keep these boundaries while the project is small. Add a new module or subpackage only when a file develops multiple independent responsibilities or gains several implementations.
 
@@ -107,10 +107,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 
 async def main() -> None:
-    token = "read from the configured token file"
-    async with httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {token}"}
-    ) as client:
+    async with httpx.AsyncClient() as client:
         async with streamable_http_client(
             "http://127.0.0.1:8765/mcp", http_client=client
         ) as (read, write, _session_id):

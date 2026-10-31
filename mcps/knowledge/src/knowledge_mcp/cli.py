@@ -49,19 +49,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _read_token(config: AppConfig) -> str:
-    token_path = config.server.token_file
-    if token_path is None or not token_path.is_file():
-        raise RuntimeError(
-            f"Knowledge server token is unavailable at {token_path}; "
-            f"start it with: knowledge --config {config.config_path} serve"
-        )
-    token = token_path.read_text(encoding="utf-8").strip()
-    if not token:
-        raise RuntimeError(f"Knowledge server token is empty: {token_path}")
-    return token
-
-
 def _decode_result(result: Any) -> Any:
     if result.isError:
         message = " ".join(block.text for block in result.content if getattr(block, "text", None))
@@ -81,10 +68,8 @@ def _decode_result(result: Any) -> Any:
 
 
 async def call_tool(config: AppConfig, name: str, arguments: dict[str, Any]) -> Any:
-    token = _read_token(config)
-    headers = {"Authorization": f"Bearer {token}"}
     try:
-        async with httpx.AsyncClient(headers=headers, timeout=120) as http_client:
+        async with httpx.AsyncClient(timeout=120) as http_client:
             async with streamable_http_client(config.server.url, http_client=http_client) as (
                 read_stream,
                 write_stream,

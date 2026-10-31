@@ -27,7 +27,7 @@ class StubCore:
 
 
 class ServerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_authenticated_http_client_calls_tools(self) -> None:
+    async def test_local_http_client_calls_tools_without_authentication(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             config = AppConfig(
@@ -38,17 +38,15 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
                     port=8765,
                     path="/mcp",
                     poll_interval_seconds=3_600,
-                    token_file=base / "token",
                 ),
             )
-            server = create_mcp_server(config, StubCore(), "secret")
+            server = create_mcp_server(config, StubCore())
             app = server.streamable_http_app()
             async with app.router.lifespan_context(app):
                 transport = httpx.ASGITransport(app=app)
                 async with httpx.AsyncClient(
                     transport=transport,
                     base_url="http://127.0.0.1:8765",
-                    headers={"Authorization": "Bearer secret"},
                 ) as client:
                     async with streamable_http_client(config.server.url, http_client=client) as (
                         read_stream,
@@ -62,6 +60,23 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
                 result.structuredContent,
                 {"result": [{"path": "note.txt", "snippet": "alpha"}]},
             )
+
+    async def test_untrusted_host_and_origin_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            config = AppConfig(source_root=base, data_dir=base / "data")
+            app = create_mcp_server(config, StubCore()).streamable_http_app()
+            async with app.router.lifespan_context(app):
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app),
+                    base_url="http://127.0.0.1:8765",
+                ) as client:
+                    for headers in (
+                        {"Host": "attacker.example"},
+                        {"Origin": "https://attacker.example"},
+                    ):
+                        response = await client.post("/mcp", headers=headers, json={})
+                        self.assertIn(response.status_code, (400, 403, 421))
 
 
 if __name__ == "__main__":

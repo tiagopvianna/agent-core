@@ -15,8 +15,6 @@ host = "127.0.0.1"
 port = 8765
 path = "/mcp"
 poll_interval_seconds = 30
-# Defaults to <data_dir>/access-token when omitted.
-# token_file = "~/.config/knowledge-mcp/access-token"
 
 [index]
 # paragraph: preserve units; section: preserve sections; packed: fill the budget.

@@ -132,7 +132,7 @@ class CoreTests(unittest.TestCase):
         self.config = AppConfig(
             source_root=self.source,
             data_dir=base / "data",
-            server=ServerConfig(token_file=base / "token"),
+            server=ServerConfig(),
             index=IndexConfig(
                 max_files_per_sync=10,
                 max_file_bytes=100_000,

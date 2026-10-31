@@ -15,7 +15,6 @@ class ServerConfig:
     port: int = 8765
     path: str = "/mcp"
     poll_interval_seconds: float = 30.0
-    token_file: Path | None = None
 
     @property
     def url(self) -> str:
@@ -107,18 +106,11 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     embedding_raw = _mapping(raw.get("embedding"), "embedding")
     parsers_raw = _mapping(raw.get("parsers"), "parsers")
 
-    token_value = server_raw.get("token_file")
-    token_file = (
-        _resolve_path(token_value, base)
-        if isinstance(token_value, str)
-        else data_dir / "access-token"
-    )
     server = ServerConfig(
         host=str(server_raw.get("host", "127.0.0.1")),
         port=int(server_raw.get("port", 8765)),
         path=str(server_raw.get("path", "/mcp")),
         poll_interval_seconds=float(server_raw.get("poll_interval_seconds", 30)),
-        token_file=token_file,
     )
     index = IndexConfig(
         max_files_per_sync=int(index_raw.get("max_files_per_sync", 10)),
