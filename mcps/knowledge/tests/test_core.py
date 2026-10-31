@@ -82,7 +82,9 @@ class MemoryStore:
     def record_sync(self, report: dict[str, Any], _complete_scan: bool) -> None:
         self.last_sync = report
 
-    def search(self, query: list[float], limit: int, folder: str | None = None) -> list[SearchHit]:
+    def search(
+        self, query: list[float], limit: int, folder: str | None = None, before=1, after=1
+    ) -> list[SearchHit]:
         hits: list[SearchHit] = []
         for path, (chunks, embeddings) in self.documents.items():
             if self.files.get(path, {}).get("state") != "active":

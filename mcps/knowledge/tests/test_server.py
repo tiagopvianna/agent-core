@@ -16,7 +16,7 @@ class StubCore:
     def sync(self, max_files=None, retry_errors=False):
         return {"indexed": 0, "remaining": 0, "failed": 0}
 
-    def search(self, query, limit=8, folder=None):
+    def search(self, query, limit=8, folder=None, before=None, after=None):
         return [{"path": "note.txt", "snippet": query}]
 
     def status(self):

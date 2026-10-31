@@ -232,7 +232,13 @@ class KnowledgeCore:
         query: str,
         limit: int = 8,
         folder: str | None = None,
+        before: int | None = None,
+        after: int | None = None,
     ) -> list[dict[str, Any]]:
+        before = self.config.search.before if before is None else before
+        after = self.config.search.after if after is None else after
+        if any(type(value) is not int or value < 0 for value in (before, after)):
+            raise ValueError("Neighbor counts must be nonnegative integers")
         if not query.strip():
             raise ValueError("query must not be empty")
         if not 1 <= limit <= 100:
@@ -241,7 +247,12 @@ class KnowledgeCore:
         with self._operation_lock:
             self._initialize_index()
             embedding = self.embedder.embed_query(query)
-            return [hit.to_dict() for hit in self.store.search(embedding, limit, normalized_folder)]
+            return [
+                hit.to_dict()
+                for hit in self.store.search(
+                    embedding, limit, normalized_folder, before=before, after=after
+                )
+            ]
 
     def inspect(self, relative_path: str, max_chars: int = 8_000) -> dict[str, Any]:
         safe_path = _safe_relative_path(relative_path)

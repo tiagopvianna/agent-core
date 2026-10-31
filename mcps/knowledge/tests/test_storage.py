@@ -52,6 +52,41 @@ class StorageTests(unittest.TestCase):
             store.update_file("api/one.txt", {"state": "pending_replace"})
             self.assertEqual(store.search([1.0, 0.0], 10, folder="api"), [])
 
+    def test_neighbors_are_complete_ordered_and_file_local(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = ChromaStore(root / "data")
+            store.initialize(root, {"model": "fake"})
+            chunks = [
+                Chunk(
+                    str(i),
+                    "x" * 2501 + str(i),
+                    {
+                        "path": "note.txt",
+                        "file_type": "txt",
+                        "chunk_index": i,
+                        "start_line": i + 1,
+                        "end_line": i + 1,
+                    },
+                )
+                for i in (0, 2, 4)
+            ]
+            store.replace_document("note.txt", chunks, [[0.0, 1.0], [1.0, 0.0], [0.0, 1.0]], 10)
+            store.update_file("note.txt", {"state": "active"})
+            hit = store.search([1.0, 0.0], 1)[0]
+            self.assertEqual(hit.chunk_index, 2)
+            self.assertEqual(len(hit.snippet), 2502)
+            self.assertEqual([c["chunk_index"] for c in hit.previous_chunks], [0])
+            self.assertEqual([c["chunk_index"] for c in hit.next_chunks], [4])
+            self.assertEqual(hit.previous_chunks[0]["text"], chunks[0].text)
+            compact = store.search([1.0, 0.0], 1, before=0, after=0)[0]
+            self.assertEqual(compact.previous_chunks, [])
+            self.assertEqual(compact.next_chunks, [])
+            expanded = store.search([1.0, 0.0], 3, before=99, after=99)
+            first = next(h for h in expanded if h.chunk_index == 0)
+            self.assertEqual(first.previous_chunks, [])
+            self.assertEqual(len(first.next_chunks), 2)
+
     def test_missing_manifest_next_to_vectors_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

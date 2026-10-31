@@ -179,3 +179,13 @@ uv run --group dev ./check.sh
 
 See [DEVELOPING.md](DEVELOPING.md) for architecture and extension examples.
 
+
+## Search context
+
+Search returns complete matched text plus one previous and one next indexed chunk by default.
+Set `[search] before = 1` and `after = 1` in TOML to adjust server defaults, then restart.
+Override with `knowledge search "todo" --before 1 --after 2`; use both counts at zero to omit neighbors.
+MCP search accepts the same optional `before` and `after` arguments. Counts must be nonnegative integers.
+JSON retains match fields and adds `chunk_index`, `previous_chunks`, and `next_chunks` with text and locations.
+Neighbors stay within the file but may cross pages or sections. Text is not truncated or deduplicated.
+Responses can therefore be larger. Context uses the indexed snapshot, not live source files; no reindex is needed.

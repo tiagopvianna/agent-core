@@ -42,3 +42,7 @@ normalize = true
 # Basic code search can use the text parser before a syntax-aware parser exists.
 # ".py" = "text"
 # ".ts" = "text"
+
+[search]
+before = 1
+after = 1

@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     search = commands.add_parser("search", help="Run semantic search")
     search.add_argument("query")
     search.add_argument("--folder")
+    search.add_argument("--before", type=int)
+    search.add_argument("--after", type=int)
     search.add_argument("--limit", type=int, default=8)
     _add_json_flag(search)
 
@@ -145,7 +147,21 @@ def _print_human(command: str, value: Any) -> None:
             elif hit.get("start_line"):
                 location += f":line {hit['start_line']}"
             print(f"{index}. {location}  distance={hit.get('distance', 0):.4f}")
-            print(f"   {hit.get('snippet', '').strip()}")
+            for label, chunks in (
+                ("Previous", hit.get("previous_chunks", [])),
+                ("Match", [{**hit, "text": hit.get("snippet", "")}]),
+                ("Next", hit.get("next_chunks", [])),
+            ):
+                for chunk in chunks:
+                    place = hit.get("path", "")
+                    if chunk.get("page") is not None:
+                        place += f":page {chunk['page']}"
+                    elif chunk.get("start_line") is not None:
+                        place += f":lines {chunk['start_line']}-{chunk.get('end_line')}"
+                    else:
+                        place += f":chunk {chunk.get('chunk_index')}"
+                    print(f"   {label} — {place}")
+                    print(chunk["text"])
         return
     print(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False))
 
@@ -165,7 +181,16 @@ def main(argv: list[str] | None = None) -> None:
                 call_tool(
                     config,
                     "search",
-                    {"query": args.query, "limit": args.limit, "folder": args.folder},
+                    {
+                        "query": args.query,
+                        "limit": args.limit,
+                        "folder": args.folder,
+                        **{
+                            key: getattr(args, key)
+                            for key in ("before", "after")
+                            if getattr(args, key) is not None
+                        },
+                    },
                 )
             )
         elif args.command == "status":

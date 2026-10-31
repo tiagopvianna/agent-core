@@ -41,6 +41,12 @@ class EmbeddingConfig:
 
 
 @dataclass(frozen=True)
+class SearchConfig:
+    before: int = 1
+    after: int = 1
+
+
+@dataclass(frozen=True)
 class AppConfig:
     source_root: Path
     data_dir: Path
@@ -56,6 +62,7 @@ class AppConfig:
         "**/node_modules/**",
         "**/__pycache__/**",
     )
+    search: SearchConfig = field(default_factory=SearchConfig)
     config_path: Path | None = None
 
 
@@ -145,6 +152,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         embedding=embedding,
         parsers=parsers,
         exclude=tuple(exclude_raw),
+        search=SearchConfig(**_mapping(raw.get("search"), "search")),
         config_path=config_path,
     )
     validate_config(config)
@@ -152,6 +160,9 @@ def load_config(path: str | Path | None = None) -> AppConfig:
 
 
 def validate_config(config: AppConfig) -> None:
+    for value in (config.search.before, config.search.after):
+        if type(value) is not int or value < 0:
+            raise ValueError("Search neighbor counts must be nonnegative integers")
     if config.server.host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("The first version only permits a loopback server host")
     if not 1 <= config.server.port <= 65_535:

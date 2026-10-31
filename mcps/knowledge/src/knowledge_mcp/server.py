@@ -117,11 +117,15 @@ def create_mcp_server(config: AppConfig, core: KnowledgeCore, token: str) -> Fas
 
     @mcp.tool(name="search")
     async def search_tool(
-        query: str, limit: int = 8, folder: str | None = None
+        query: str,
+        limit: int = 8,
+        folder: str | None = None,
+        before: int | None = None,
+        after: int | None = None,
     ) -> list[dict[str, Any]]:
         """Semantically search indexed files, optionally below a folder."""
         return await anyio.to_thread.run_sync(
-            lambda: core.search(query=query, limit=limit, folder=folder)
+            lambda: core.search(query=query, limit=limit, folder=folder, before=before, after=after)
         )
 
     @mcp.tool(name="status")

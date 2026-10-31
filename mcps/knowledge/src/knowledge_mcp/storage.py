@@ -229,6 +229,8 @@ class ChromaStore:
         query_embedding: list[float],
         limit: int,
         folder: str | None = None,
+        before: int = 1,
+        after: int = 1,
     ) -> list[SearchHit]:
         collection = self._get_collection()
         count = collection.count()
@@ -255,7 +257,8 @@ class ChromaStore:
                 SearchHit(
                     path=path,
                     file_type=str(metadata.get("file_type", "")),
-                    snippet=str(document)[:500],
+                    snippet=str(document),
+                    chunk_index=int(metadata["chunk_index"]),
                     distance=float(distance),
                     metric=DISTANCE_METRIC,
                     indexed_at=entry.get("indexed_at"),
@@ -267,6 +270,28 @@ class ChromaStore:
             )
             if len(hits) >= limit:
                 break
+        paths = {hit.path for hit in hits}
+        records: dict[str, list[dict[str, Any]]] = {path: [] for path in paths}
+        for identifier, document, metadata in zip(
+            result["ids"][0], documents, metadatas, strict=True
+        ):
+            path = str(metadata.get("path", ""))
+            if path in records:
+                records[path].append(
+                    {
+                        "chunk_id": identifier,
+                        "chunk_index": int(metadata["chunk_index"]),
+                        "text": str(document),
+                        **{key: metadata.get(key) for key in ("page", "start_line", "end_line")},
+                    }
+                )
+        for items in records.values():
+            items.sort(key=lambda item: item["chunk_index"])
+        for hit in hits:
+            items = records[hit.path]
+            position = next(i for i, item in enumerate(items) if item["chunk_id"] == hit.chunk_id)
+            hit.previous_chunks.extend(items[max(0, position - before) : position])
+            hit.next_chunks.extend(items[position + 1 : position + 1 + after])
         return hits
 
     def inspect(self, path: str, max_chars: int = 8_000) -> dict[str, Any]:

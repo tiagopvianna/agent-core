@@ -53,6 +53,10 @@ class SearchHit:
     end_line: int | None = None
     chunk_id: str | None = None
 
+    chunk_index: int | None = None
+    previous_chunks: list[dict[str, Any]] = field(default_factory=list)
+    next_chunks: list[dict[str, Any]] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
