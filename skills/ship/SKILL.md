@@ -40,6 +40,8 @@ Pick a descriptive branch name (e.g. `tiagovianna/<short-description>`); include
 
 Make the edits in the branch/worktree. Build and run the relevant tests/linters before committing. If stage is `code`, stop here and report the branch and what changed.
 
+Keep code comments minimal: add one only when the code cannot explain itself (a non-obvious *why*, a workaround, a gotcha). Do not narrate what the code already says, and do not add a comment just to mark a new line. Default to no comment.
+
 ## 3. Commit — no co-authoring
 
 Commit with a clear message and **no `Co-Authored-By` line** and no AI attribution of any kind.
@@ -64,6 +66,10 @@ The PR description must have **no "Generated with Claude Code" / "🤖 Generated
 
 If you later edit the description, also use a file: `gh pr edit <n> --body-file <file>`.
 
+### PR title
+
+When the change belongs to a recognizable domain/component, prefix the title with that domain in square brackets: `[Ascend stream] forward ScheduleTemplateV1 events`, `[Scheduler] add reconcileCadence`. Keep the bracket label short and human-readable (the component or subsystem, not a file path). Omit the prefix only when the change spans no single domain.
+
 ## PR description content rules
 
 Write the description about the **code as it stands**, for a reviewer who wasn't in the conversation:
@@ -74,6 +80,10 @@ Write the description about the **code as it stands**, for a reviewer who wasn't
 - Keep it concise and factual; no filler.
 
 Unless the user asks otherwise, default to this.
+
+### Formatting / whitespace
+
+Write the body as normal GitHub-flavored Markdown and let it wrap naturally — **do not hard-wrap paragraphs** by inserting newlines mid-sentence to cap line width. A paragraph or a bullet is one continuous line; a single newline inside a sentence renders as an unwanted line break and makes the description look full of whitespace. Separate blocks (paragraphs, headings, list items) with a single blank line, and don't stack extra blank lines. Keep the file free of trailing spaces.
 
 ## Attribution
 
