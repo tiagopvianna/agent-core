@@ -57,7 +57,7 @@ For example, prefer:
 
 Over:
 
-> `scheduling_consumer` decodes `agent_id`, calls `Resolver.AscendClient`, invokes `Dispatch`, and claims `idempotency_key`.
+> `booking_consumer` decodes `request_id`, calls `Resolver.ProviderClient`, invokes `Dispatch`, and claims `idempotency_key`.
 
 Mention concrete function, method, parameter, class, or file names only when they are central to understanding the design.
 

@@ -34,7 +34,7 @@ git fetch origin
 git worktree add -b <branch> .worktrees/<short-name> origin/main
 ```
 
-Pick a descriptive branch name (e.g. `tiagovianna/<short-description>`); include the ticket id only if one exists.
+Pick a descriptive branch name (e.g. `<your-handle>/<short-description>`); include the ticket id only if one exists.
 
 ## 2. Apply the change
 
@@ -68,7 +68,7 @@ If you later edit the description, also use a file: `gh pr edit <n> --body-file 
 
 ### PR title
 
-When the change belongs to a recognizable domain/component, prefix the title with that domain in square brackets: `[Ascend stream] forward ScheduleTemplateV1 events`, `[Scheduler] add reconcileCadence`. Keep the bracket label short and human-readable (the component or subsystem, not a file path). Omit the prefix only when the change spans no single domain.
+When the change belongs to a recognizable domain/component, prefix the title with that domain in square brackets: `[Billing] retry failed charges`, `[Search] add fuzzy matching`. Keep the bracket label short and human-readable (the component or subsystem, not a file path). Omit the prefix only when the change spans no single domain.
 
 ## PR description content rules
 
