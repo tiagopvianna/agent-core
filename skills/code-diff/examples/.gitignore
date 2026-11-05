@@ -1,0 +1,4 @@
+# Example artifacts may embed internal source — keep them local, never commit.
+*
+!.gitignore
+!README.md
