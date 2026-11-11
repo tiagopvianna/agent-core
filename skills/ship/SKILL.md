@@ -42,6 +42,8 @@ Make the edits in the branch/worktree. Build and run the relevant tests/linters 
 
 Keep code comments minimal: add one only when the code cannot explain itself (a non-obvious *why*, a workaround, a gotcha). Do not narrate what the code already says, and do not add a comment just to mark a new line. Default to no comment.
 
+**Never reference an issue tracker in a code comment** — no Linear ticket ids (e.g. `EDGE-123`), Jira keys, GitHub issue numbers, or tracker URLs. Code comments must be durable and self-contained: explain the *why* in prose that still makes sense years later, after the ticket is closed and the tracker maybe gone. The ticket reference belongs on the branch name, commit, and PR — not in the source.
+
 ## 3. Commit — no co-authoring
 
 Commit with a clear message and **no `Co-Authored-By` line** and no AI attribution of any kind.
